@@ -4,7 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.burgermenu.data.models.Product
-import com.example.burgermenu.data.repository.ProductRepository
+import com.example.burgermenu.data.repository.BurgerApiProductRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,30 +19,15 @@ data class ProductUiState(
 )
 
 class ProductViewModel(
-    private val repository: ProductRepository = ProductRepository()
+    private val repository: BurgerApiProductRepository = BurgerApiProductRepository()
 ) : ViewModel() {
     
     private val _uiState = MutableStateFlow(ProductUiState())
     val uiState: StateFlow<ProductUiState> = _uiState.asStateFlow()
     
     init {
-        // Primero ejecutar diagnóstico para ver qué hay en la BD
-        runDiagnostic()
         loadProducts()
         loadCategories()
-    }
-    
-    private fun runDiagnostic() {
-        viewModelScope.launch {
-            // Probar conectividad básica
-            repository.testConnection()
-                .onSuccess { message ->
-                    Log.d("ProductViewModel", "Test conexión: $message")
-                }
-                .onFailure { exception ->
-                    Log.e("ProductViewModel", "Test conexión falló: ${exception.message}")
-                }
-        }
     }
     
     fun loadProducts() {
