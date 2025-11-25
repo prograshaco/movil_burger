@@ -1,6 +1,6 @@
 # 🍔 BurgerMenu - Sistema de Gestión de Restaurante
 
-Una aplicación móvil completa para la gestión de restaurantes desarrollada en **Kotlin** con **Jetpack Compose**.
+Una aplicación móvil completa para la gestión de restaurantes desarrollada en **Kotlin** con **Jetpack Compose**.Sistema 
 
 ## 📱 Características Principales
 
