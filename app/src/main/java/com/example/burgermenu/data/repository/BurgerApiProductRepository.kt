@@ -12,7 +12,7 @@ class BurgerApiProductRepository {
     // Convertir ApiProduct a Product (modelo local)
     private fun ApiProduct.toProduct(): Product {
         return Product(
-            id = _id ?: "",
+            id = id ?: "",
             name = name,
             description = description,
             price = (price * 100).toInt(), // Convertir a centavos
@@ -26,7 +26,7 @@ class BurgerApiProductRepository {
     // Convertir Product a ApiProduct
     private fun Product.toApiProduct(): ApiProduct {
         return ApiProduct(
-            _id = if (id.isNotEmpty()) id else null,
+            id = if (id.isNotEmpty()) id else null,
             name = name,
             description = description,
             price = price / 100.0, // Convertir de centavos a precio decimal
@@ -157,7 +157,7 @@ class BurgerApiProductRepository {
             Log.d("BurgerApiProductRepository", "Actualizando producto: $productId")
             
             val apiProduct = ApiProduct(
-                _id = productId,
+                id = productId,
                 name = name,
                 description = description,
                 price = price,

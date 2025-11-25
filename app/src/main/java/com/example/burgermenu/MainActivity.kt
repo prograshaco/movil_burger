@@ -60,38 +60,19 @@ fun BurgerMenuApp() {
     Scaffold(
         bottomBar = {
             NavigationBar {
-                    tabs.forEach { dest ->
-                        NavigationBarItem(
-                            selected = currentRoute == dest.route,
-                            onClick = {
-                                nav.navigate(dest.route) {
-                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = { Icon(dest.icon, contentDescription = dest.label) },
-                            label = { Text(dest.label) }
-                        )
-                    }
-                }
-            }
-        },
-        floatingActionButton = {
-            when (currentRoute) {
-                Dest.Products.route -> {
-                    FloatingActionButton(
-                        onClick = { nav.navigate(Dest.CreateProduct.route) }
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Crear Producto")
-                    }
-                }
-                Dest.Users.route -> {
-                    FloatingActionButton(
-                        onClick = { nav.navigate(Dest.CreateUser.route) }
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Crear Usuario")
-                    }
+                tabs.forEach { dest ->
+                    NavigationBarItem(
+                        selected = currentRoute == dest.route,
+                        onClick = {
+                            nav.navigate(dest.route) {
+                                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        icon = { Icon(dest.icon, contentDescription = dest.label) },
+                        label = { Text(dest.label) }
+                    )
                 }
             }
         }
@@ -150,17 +131,103 @@ sealed class Dest(val route: String, val label: String, val icon: ImageVector) {
 @Composable
 fun ProductListScreen(viewModel: ProductViewModel, navController: NavHostController) {
     val uiState by viewModel.uiState.collectAsState()
+    var showSuccessMessage by remember { mutableStateOf(false) }
+    var successMessage by remember { mutableStateOf("") }
+    var selectedCurrency by remember { mutableStateOf(com.example.burgermenu.data.network.Currency.USD) }
+    var showCurrencyMenu by remember { mutableStateOf(false) }
+
+    // Mostrar mensaje de éxito
+    LaunchedEffect(showSuccessMessage) {
+        if (showSuccessMessage) {
+            kotlinx.coroutines.delay(2000)
+            showSuccessMessage = false
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text(
-            text = "Productos",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Productos",
+                style = MaterialTheme.typography.headlineMedium
+            )
+            
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Selector de moneda
+                AssistChip(
+                    onClick = { showCurrencyMenu = true },
+                    label = { Text("${selectedCurrency.symbol} ${selectedCurrency.code}") },
+                    leadingIcon = { Icon(Icons.Filled.ShoppingCart, contentDescription = null) }
+                )
+                
+                FloatingActionButton(
+                    onClick = { navController.navigate(Dest.CreateProduct.route) },
+                    modifier = Modifier.size(56.dp)
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = "Crear Producto")
+                }
+            }
+        }
+        
+        // Menú de selección de moneda
+        if (showCurrencyMenu) {
+            AlertDialog(
+                onDismissRequest = { showCurrencyMenu = false },
+                title = { Text("Seleccionar Moneda") },
+                text = {
+                    LazyColumn {
+                        items(com.example.burgermenu.data.network.Currency.values().toList()) { currency ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedCurrency = currency
+                                        showCurrencyMenu = false
+                                    }
+                                    .padding(vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("${currency.symbol} ${currency.displayName}")
+                                if (currency == selectedCurrency) {
+                                    Icon(Icons.Filled.Check, contentDescription = null)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showCurrencyMenu = false }) {
+                        Text("Cerrar")
+                    }
+                }
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Mensaje de éxito
+        if (showSuccessMessage) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = successMessage,
+                    modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         
         if (uiState.isLoading) {
             Box(
@@ -197,7 +264,12 @@ fun ProductListScreen(viewModel: ProductViewModel, navController: NavHostControl
                     ProductCard(
                         product = product, 
                         navController = navController,
-                        onDelete = { productId -> viewModel.deleteProduct(productId) }
+                        selectedCurrency = selectedCurrency,
+                        onDelete = { productId -> 
+                            viewModel.deleteProduct(productId)
+                            successMessage = "✓ Producto eliminado exitosamente"
+                            showSuccessMessage = true
+                        }
                     )
                 }
             }
@@ -206,17 +278,67 @@ fun ProductListScreen(viewModel: ProductViewModel, navController: NavHostControl
 }
 
 @Composable
-fun ProductCard(product: Product, navController: NavHostController, onDelete: (String) -> Unit) {
+fun ProductCard(
+    product: Product, 
+    navController: NavHostController, 
+    selectedCurrency: com.example.burgermenu.data.network.Currency,
+    onDelete: (String) -> Unit
+) {
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var convertedPrice by remember { mutableStateOf<Double?>(null) }
+    var isConverting by remember { mutableStateOf(false) }
+    
+    // Convertir precio cuando cambia la moneda
+    LaunchedEffect(selectedCurrency.code, product.id) {
+        android.util.Log.d("ProductCard", "=== INICIANDO CONVERSIÓN ===")
+        android.util.Log.d("ProductCard", "Producto: ${product.name}")
+        android.util.Log.d("ProductCard", "Precio original: ${product.price} centavos")
+        android.util.Log.d("ProductCard", "Moneda seleccionada: ${selectedCurrency.code}")
+        
+        isConverting = true
+        val priceInUSD = product.price / 100.0
+        android.util.Log.d("ProductCard", "Precio en USD: $priceInUSD")
+        
+        if (selectedCurrency.code != "USD") {
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.example.burgermenu.data.network.CurrencyService.convertPrice(
+                    priceInUSD, 
+                    "USD", 
+                    selectedCurrency.code
+                )
+            }
+            
+            result.onSuccess { converted ->
+                android.util.Log.d("ProductCard", "✅ Conversión exitosa: $converted ${selectedCurrency.code}")
+                convertedPrice = converted
+                isConverting = false
+            }.onFailure { error ->
+                android.util.Log.e("ProductCard", "❌ Error conversión: ${error.message}")
+                convertedPrice = priceInUSD
+                isConverting = false
+            }
+        } else {
+            android.util.Log.d("ProductCard", "Moneda USD, sin conversión")
+            convertedPrice = priceInUSD
+            isConverting = false
+        }
+    }
 
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Eliminar Producto") },
-            text = { Text("¿Estás seguro de que deseas eliminar ${product.name}?") },
+            text = { 
+                Column {
+                    Text("¿Estás seguro de que deseas eliminar ${product.name}?")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("ID: ${product.id}", style = MaterialTheme.typography.bodySmall)
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
+                        android.util.Log.d("ProductCard", "Eliminando producto con ID: ${product.id}")
                         onDelete(product.id)
                         showDeleteDialog = false
                     }
@@ -262,11 +384,22 @@ fun ProductCard(product: Product, navController: NavHostController, onDelete: (S
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "$${String.format("%.2f", product.price / 100.0)}",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    if (isConverting) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    } else {
+                        Text(
+                            text = "${selectedCurrency.symbol}${String.format("%.2f", convertedPrice ?: (product.price / 100.0))}",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (selectedCurrency.code != "USD") {
+                            Text(
+                                text = "≈ $${String.format("%.2f", product.price / 100.0)} USD",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
                 }
                 
                 Column {
@@ -291,9 +424,19 @@ fun ProductCard(product: Product, navController: NavHostController, onDelete: (S
 @Composable
 fun UserListScreen(viewModel: UserViewModel, navController: NavHostController) {
     val uiState by viewModel.uiState.collectAsState()
+    var showSuccessMessage by remember { mutableStateOf(false) }
+    var successMessage by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         viewModel.loadUsers()
+    }
+
+    // Mostrar mensaje de éxito
+    LaunchedEffect(showSuccessMessage) {
+        if (showSuccessMessage) {
+            kotlinx.coroutines.delay(2000)
+            showSuccessMessage = false
+        }
     }
 
     Column(
@@ -301,11 +444,42 @@ fun UserListScreen(viewModel: UserViewModel, navController: NavHostController) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text(
-            text = "Usuarios",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Usuarios",
+                style = MaterialTheme.typography.headlineMedium
+            )
+            
+            FloatingActionButton(
+                onClick = { navController.navigate(Dest.CreateUser.route) },
+                modifier = Modifier.size(56.dp)
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "Crear Usuario")
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Mensaje de éxito
+        if (showSuccessMessage) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = successMessage,
+                    modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         
         if (uiState.isLoading) {
             Box(
@@ -342,7 +516,11 @@ fun UserListScreen(viewModel: UserViewModel, navController: NavHostController) {
                     UserCard(
                         user = user, 
                         navController = navController,
-                        onDelete = { userId -> viewModel.deleteUser(userId) }
+                        onDelete = { userId -> 
+                            viewModel.deleteUser(userId)
+                            successMessage = "✓ Usuario eliminado exitosamente"
+                            showSuccessMessage = true
+                        }
                     )
                 }
             }

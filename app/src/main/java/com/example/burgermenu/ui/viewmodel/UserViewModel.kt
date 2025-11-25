@@ -58,7 +58,21 @@ class UserViewModel(
         loadUsers()
     }
     
-
+    fun deleteUser(userId: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true)
+            repository.deleteUser(userId)
+                .onSuccess {
+                    loadUsers()
+                }
+                .onFailure { exception ->
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = "Error al eliminar usuario: ${exception.message}"
+                    )
+                }
+        }
+    }
     
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)

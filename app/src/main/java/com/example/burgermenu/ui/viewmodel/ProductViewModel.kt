@@ -4,7 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.burgermenu.data.models.Product
-import com.example.burgermenu.data.repository.BurgerApiProductRepository
+import com.example.burgermenu.data.repository.ProductRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +19,7 @@ data class ProductUiState(
 )
 
 class ProductViewModel(
-    private val repository: BurgerApiProductRepository = BurgerApiProductRepository()
+    private val repository: ProductRepository = ProductRepository()
 ) : ViewModel() {
     
     private val _uiState = MutableStateFlow(ProductUiState())
@@ -103,6 +103,22 @@ class ProductViewModel(
     fun selectCategory(category: String) {
         if (category != _uiState.value.selectedCategory) {
             loadProductsByCategory(category)
+        }
+    }
+    
+    fun deleteProduct(productId: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true)
+            repository.deleteProduct(productId)
+                .onSuccess {
+                    refreshProducts()
+                }
+                .onFailure { exception ->
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = "Error al eliminar: ${exception.message}"
+                    )
+                }
         }
     }
     

@@ -2,136 +2,66 @@ package com.example.burgermenu.data.repository
 
 import android.util.Log
 import com.example.burgermenu.data.models.User
-import com.example.burgermenu.data.network.TursoClient
+import com.example.burgermenu.data.network.ApiUser
+import com.example.burgermenu.data.network.BurgerApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonArray
 
 class UserRepository {
     
+    private fun ApiUser.toUser(): User {
+        return User(
+            id = id ?: "",
+            username = username,
+            email = email,
+            password = password,
+            name = name,
+            role = role,
+            phone = phone,
+            address = address
+        )
+    }
+
     suspend fun getAllUsers(): Result<List<User>> = withContext(Dispatchers.IO) {
         try {
-            Log.d("UserRepository", "Conectando a Turso para obtener usuarios...")
-            
-            val response = TursoClient.executeQuery(
-                "SELECT id, username, email, name, role, phone, address FROM users ORDER BY name"
-            )
+            Log.d("UserRepository", "Obteniendo todos los usuarios de la API")
+            val response = BurgerApiClient.getAllUsers()
             
             if (response.isSuccess) {
-                val tursoResponse = response.getOrThrow()
-                Log.d("UserRepository", "Turso conectado. Resultados: ${tursoResponse.results.size}")
-                Log.d("UserRepository", "Respuesta completa: $tursoResponse")
-                
-                // Extraer datos del formato v2
-                val (columns: List<String>, rows: List<JsonArray>) = TursoClient.extractDataFromV2Response(tursoResponse)
-                Log.d("UserRepository", "Columnas extraídas: $columns")
-                Log.d("UserRepository", "Filas extraídas: ${rows.size}")
-                
-                if (rows.isNotEmpty()) {
-                    val users = TursoClient.rowsToMaps(columns, rows).map { row ->
-                        Log.d("UserRepository", "Procesando usuario: $row")
-                        User(
-                            id = row["id"] ?: "",
-                            username = row["username"] ?: "",
-                            email = row["email"] ?: "",
-                            password = "", // No devolvemos la contraseña por seguridad
-                            name = row["name"] ?: "",
-                            role = row["role"] ?: "customer",
-                            phone = row["phone"] ?: "",
-                            address = row["address"] ?: ""
-                        )
-                    }
-                    Log.d("UserRepository", "Usuarios procesados exitosamente: ${users.size}")
-                    Result.success(users)
-                } else {
-                    Log.w("UserRepository", "No hay usuarios en la BD")
-                    Result.success(emptyList())
-                }
+                val apiUsers = response.getOrThrow()
+                val users = apiUsers.map { it.toUser() }
+                Log.d("UserRepository", "✅ Usuarios obtenidos: ${users.size}")
+                Result.success(users)
             } else {
-                val error = response.exceptionOrNull()
-                Log.e("UserRepository", "Error conectando a Turso: ${error?.message}")
-                Result.failure(error ?: Exception("Error desconocido de Turso"))
+                Result.failure(response.exceptionOrNull() ?: Exception("Error al obtener usuarios"))
             }
         } catch (e: Exception) {
-            Log.e("UserRepository", "Excepción al conectar a Turso: ${e.message}", e)
+            Log.e("UserRepository", "❌ Exception: ${e.message}", e)
             Result.failure(e)
         }
     }
     
     suspend fun getActiveUsers(): Result<List<User>> = withContext(Dispatchers.IO) {
-        try {
-            Log.d("UserRepository", "Obteniendo usuarios activos...")
-            
-            val response = TursoClient.executeQuery(
-                "SELECT id, username, email, name, role, phone, address FROM users WHERE role != 'inactive' ORDER BY name"
-            )
-            
-            if (response.isSuccess) {
-                val tursoResponse = response.getOrThrow()
-                val (columns: List<String>, rows: List<JsonArray>) = TursoClient.extractDataFromV2Response(tursoResponse)
-                
-                if (rows.isNotEmpty()) {
-                    val users = TursoClient.rowsToMaps(columns, rows).map { row ->
-                        User(
-                            id = row["id"] ?: "",
-                            username = row["username"] ?: "",
-                            email = row["email"] ?: "",
-                            password = "", // No devolvemos la contraseña por seguridad
-                            name = row["name"] ?: "",
-                            role = row["role"] ?: "customer",
-                            phone = row["phone"] ?: "",
-                            address = row["address"] ?: ""
-                        )
-                    }
-                    Result.success(users)
-                } else {
-                    Log.w("UserRepository", "No hay usuarios activos en la BD")
-                    Result.success(emptyList())
-                }
-            } else {
-                val error = response.exceptionOrNull()
-                Log.e("UserRepository", "Error al obtener usuarios activos: ${error?.message}")
-                Result.failure(error ?: Exception("Error desconocido de Turso"))
-            }
-        } catch (e: Exception) {
-            Log.e("UserRepository", "Excepción al obtener usuarios activos: ${e.message}", e)
-            Result.failure(e)
+        // Por ahora, la API no tiene endpoint específico para activos, filtramos localmente o usamos getAllUsers
+        // Idealmente el backend debería soportar filtrado
+        getAllUsers().map { users -> 
+            users.filter { it.role != "inactive" }
         }
     }
     
     suspend fun getUserById(userId: String): Result<User?> = withContext(Dispatchers.IO) {
         try {
             Log.d("UserRepository", "Obteniendo usuario por ID: $userId")
-            
-            val response = TursoClient.executeQuery(
-                "SELECT id, username, email, name, role, phone, address FROM users WHERE id = '$userId'"
-            )
+            val response = BurgerApiClient.getUserById(userId)
             
             if (response.isSuccess) {
-                val tursoResponse = response.getOrThrow()
-                val (columns, rows) = TursoClient.extractDataFromV2Response(tursoResponse)
-                
-                if (rows.isNotEmpty()) {
-                    val row = TursoClient.rowsToMaps(columns, rows).first()
-                    val user = User(
-                        id = row["id"] ?: "",
-                        username = row["username"] ?: "",
-                        email = row["email"] ?: "",
-                        password = "",
-                        name = row["name"] ?: "",
-                        role = row["role"] ?: "customer",
-                        phone = row["phone"] ?: "",
-                        address = row["address"] ?: ""
-                    )
-                    Result.success(user)
-                } else {
-                    Result.success(null)
-                }
+                val apiUser = response.getOrThrow()
+                Result.success(apiUser.toUser())
             } else {
                 Result.failure(response.exceptionOrNull() ?: Exception("Error al obtener usuario"))
             }
         } catch (e: Exception) {
-            Log.e("UserRepository", "Error obteniendo usuario: ${e.message}", e)
+            Log.e("UserRepository", "❌ Exception: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -140,22 +70,25 @@ class UserRepository {
         try {
             Log.d("UserRepository", "Creando usuario: $username")
             
-            val userId = "user_${java.util.UUID.randomUUID()}"
-            val defaultPassword = "password123" // En producción, esto debería ser hasheado
-            
-            val response = TursoClient.executeQuery(
-                """INSERT INTO users (id, username, email, password, name, role, phone, address) 
-                   VALUES ('$userId', '$username', '$email', '$defaultPassword', '$name', 'customer', '$phone', '$address')"""
+            val apiUser = ApiUser(
+                username = username,
+                email = email,
+                name = name,
+                phone = phone,
+                address = address,
+                password = "password123" // Default password
             )
             
+            val response = BurgerApiClient.createUser(apiUser)
+            
             if (response.isSuccess) {
-                Log.d("UserRepository", "Usuario creado exitosamente")
+                Log.d("UserRepository", "✅ Usuario creado")
                 Result.success(true)
             } else {
                 Result.failure(response.exceptionOrNull() ?: Exception("Error al crear usuario"))
             }
         } catch (e: Exception) {
-            Log.e("UserRepository", "Error creando usuario: ${e.message}", e)
+            Log.e("UserRepository", "❌ Exception: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -164,20 +97,42 @@ class UserRepository {
         try {
             Log.d("UserRepository", "Actualizando usuario: $userId")
             
-            val response = TursoClient.executeQuery(
-                """UPDATE users 
-                   SET username = '$username', email = '$email', name = '$name', phone = '$phone', address = '$address'
-                   WHERE id = '$userId'"""
+            val apiUser = ApiUser(
+                id = userId,
+                username = username,
+                email = email,
+                name = name,
+                phone = phone,
+                address = address
             )
             
+            val response = BurgerApiClient.updateUser(userId, apiUser)
+            
             if (response.isSuccess) {
-                Log.d("UserRepository", "Usuario actualizado exitosamente")
+                Log.d("UserRepository", "✅ Usuario actualizado")
                 Result.success(true)
             } else {
                 Result.failure(response.exceptionOrNull() ?: Exception("Error al actualizar usuario"))
             }
         } catch (e: Exception) {
-            Log.e("UserRepository", "Error actualizando usuario: ${e.message}", e)
+            Log.e("UserRepository", "❌ Exception: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteUser(userId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            Log.d("UserRepository", "Eliminando usuario: $userId")
+            val response = BurgerApiClient.deleteUser(userId)
+            
+            if (response.isSuccess) {
+                Log.d("UserRepository", "✅ Usuario eliminado")
+                Result.success(true)
+            } else {
+                Result.failure(response.exceptionOrNull() ?: Exception("Error al eliminar usuario"))
+            }
+        } catch (e: Exception) {
+            Log.e("UserRepository", "❌ Exception: ${e.message}", e)
             Result.failure(e)
         }
     }
