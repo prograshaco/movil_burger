@@ -38,6 +38,7 @@ import com.example.burgermenu.ui.viewmodel.OrderViewModel
 import com.example.burgermenu.data.models.Product
 import com.example.burgermenu.data.models.User
 import com.example.burgermenu.data.models.Order
+import com.example.burgermenu.services.NotificationService
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,19 +60,20 @@ fun BurgerMenuApp() {
     Scaffold(
         bottomBar = {
             NavigationBar {
-                tabs.forEach { dest ->
-                    NavigationBarItem(
-                        selected = currentRoute == dest.route,
-                        onClick = {
-                            nav.navigate(dest.route) {
-                                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(dest.icon, contentDescription = dest.label) },
-                        label = { Text(dest.label) }
-                    )
+                    tabs.forEach { dest ->
+                        NavigationBarItem(
+                            selected = currentRoute == dest.route,
+                            onClick = {
+                                nav.navigate(dest.route) {
+                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { Icon(dest.icon, contentDescription = dest.label) },
+                            label = { Text(dest.label) }
+                        )
+                    }
                 }
             }
         },
@@ -101,16 +103,12 @@ fun BurgerMenuApp() {
         ) {
             composable(Dest.Products.route) { 
                 val viewModel: ProductViewModel = viewModel()
-                
-                LaunchedEffect(Unit) {
-                    viewModel.refreshProducts()
-                }
-                
+                LaunchedEffect(Unit) { viewModel.refreshProducts() }
                 ProductListScreen(viewModel = viewModel, navController = nav) 
             }
             composable(Dest.Users.route) { 
                 val viewModel: UserViewModel = viewModel()
-                UserListScreen(viewModel = viewModel, navController = nav) 
+                com.example.burgermenu.ui.UserListScreen(viewModel = viewModel, navController = nav) 
             }
             composable(Dest.Orders.route) { 
                 val viewModel: OrderViewModel = viewModel()
@@ -139,6 +137,7 @@ fun BurgerMenuApp() {
 }
 
 sealed class Dest(val route: String, val label: String, val icon: ImageVector) {
+    data object Login : Dest("login", "Login", Icons.Filled.Person)
     data object Products : Dest("products", "Productos", Icons.AutoMirrored.Filled.List)
     data object Users    : Dest("users", "Usuarios", Icons.Filled.Person)
     data object Orders   : Dest("orders", "Pedidos", Icons.Filled.ShoppingCart)
@@ -195,7 +194,11 @@ fun ProductListScreen(viewModel: ProductViewModel, navController: NavHostControl
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(uiState.products) { product ->
-                    ProductCard(product = product, navController = navController)
+                    ProductCard(
+                        product = product, 
+                        navController = navController,
+                        onDelete = { productId -> viewModel.deleteProduct(productId) }
+                    )
                 }
             }
         }
@@ -203,7 +206,32 @@ fun ProductListScreen(viewModel: ProductViewModel, navController: NavHostControl
 }
 
 @Composable
-fun ProductCard(product: Product, navController: NavHostController) {
+fun ProductCard(product: Product, navController: NavHostController, onDelete: (String) -> Unit) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Eliminar Producto") },
+            text = { Text("¿Estás seguro de que deseas eliminar ${product.name}?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete(product.id)
+                        showDeleteDialog = false
+                    }
+                ) {
+                    Text("Eliminar", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
     ElevatedCard(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -247,22 +275,12 @@ fun ProductCard(product: Product, navController: NavHostController) {
                             navController.navigate("${Dest.EditProduct.route}/${product.id}")
                         }
                     ) {
-                        Icon(
-                            Icons.Filled.Edit,
-                            contentDescription = "Editar",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        Icon(Icons.Filled.Edit, contentDescription = "Editar")
                     }
                     IconButton(
-                        onClick = { 
-                            // TODO: Implementar eliminación con confirmación
-                        }
+                        onClick = { showDeleteDialog = true }
                     ) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = "Eliminar",
-                            tint = MaterialTheme.colorScheme.error
-                        )
+                        Icon(Icons.Filled.Delete, contentDescription = "Eliminar")
                     }
                 }
             }
@@ -321,7 +339,11 @@ fun UserListScreen(viewModel: UserViewModel, navController: NavHostController) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(uiState.users) { user ->
-                    UserCard(user = user, navController = navController)
+                    UserCard(
+                        user = user, 
+                        navController = navController,
+                        onDelete = { userId -> viewModel.deleteUser(userId) }
+                    )
                 }
             }
         }
@@ -329,7 +351,32 @@ fun UserListScreen(viewModel: UserViewModel, navController: NavHostController) {
 }
 
 @Composable
-fun UserCard(user: User, navController: NavHostController) {
+fun UserCard(user: User, navController: NavHostController, onDelete: (String) -> Unit) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Eliminar Usuario") },
+            text = { Text("¿Estás seguro de que deseas eliminar a ${user.name}?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete(user.id)
+                        showDeleteDialog = false
+                    }
+                ) {
+                    Text("Eliminar", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
     ElevatedCard(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -398,7 +445,7 @@ fun UserCard(user: User, navController: NavHostController) {
                         }
                         IconButton(
                             onClick = { 
-                                // TODO: Implementar eliminación con confirmación
+                                showDeleteDialog = true
                             }
                         ) {
                             Icon(
@@ -413,7 +460,6 @@ fun UserCard(user: User, navController: NavHostController) {
         }
     }
 }
-
 @Composable
 fun OrderListScreen(viewModel: OrderViewModel) {
     val uiState by viewModel.uiState.collectAsState()
@@ -903,8 +949,6 @@ fun EditProductScreen(productId: String, navController: NavHostController, produ
             performUpdate()
         }
     }
-    
-
     
     // Mostrar mensajes
     LaunchedEffect(showSuccessMessage) {
