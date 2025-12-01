@@ -35,6 +35,7 @@ import androidx.navigation.compose.*
 import com.example.burgermenu.ui.viewmodel.ProductViewModel
 import com.example.burgermenu.ui.viewmodel.UserViewModel
 import com.example.burgermenu.ui.viewmodel.OrderViewModel
+import com.example.burgermenu.ui.viewmodel.OrderViewModelFactory
 import com.example.burgermenu.data.models.Product
 import com.example.burgermenu.data.models.User
 import com.example.burgermenu.data.models.Order
@@ -43,6 +44,15 @@ import com.example.burgermenu.services.NotificationService
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Solicitar permisos de notificación en Android 13+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+        }
+        
+        // Iniciar el monitoreo de pedidos
+        com.example.burgermenu.services.OrderMonitorWorker.schedulePeriodicCheck(this)
+        
         setContent { 
             MaterialTheme {
                 BurgerMenuApp() 
@@ -92,7 +102,23 @@ fun BurgerMenuApp() {
                 com.example.burgermenu.ui.UserListScreen(viewModel = viewModel, navController = nav) 
             }
             composable(Dest.Orders.route) { 
-                val viewModel: OrderViewModel = viewModel()
+                val context = LocalContext.current
+                val viewModel: OrderViewModel = viewModel(
+                    factory = OrderViewModelFactory(context)
+                )
+                
+                // Iniciar monitoreo cuando se muestra la pantalla
+                LaunchedEffect(Unit) {
+                    viewModel.startMonitoring()
+                }
+                
+                // Detener monitoreo cuando se sale de la pantalla
+                DisposableEffect(Unit) {
+                    onDispose {
+                        viewModel.stopMonitoring()
+                    }
+                }
+                
                 OrderListScreen(viewModel = viewModel) 
             }
             composable(Dest.CreateProduct.route) {

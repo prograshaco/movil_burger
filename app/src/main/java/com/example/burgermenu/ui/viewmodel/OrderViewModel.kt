@@ -1,9 +1,11 @@
 package com.example.burgermenu.ui.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.burgermenu.data.models.Order
 import com.example.burgermenu.data.repository.OrderRepository
+import com.example.burgermenu.services.NotificationService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,14 +20,95 @@ data class OrderUiState(
 )
 
 class OrderViewModel(
-    private val repository: OrderRepository = OrderRepository()
+    private val repository: OrderRepository = OrderRepository(),
+    private val context: Context? = null
 ) : ViewModel() {
+    
+    private val notificationService: NotificationService? = context?.let { NotificationService(it) }
     
     private val _uiState = MutableStateFlow(OrderUiState())
     val uiState: StateFlow<OrderUiState> = _uiState.asStateFlow()
     
+    private var previousOrderIds = setOf<String>()
+    private var previousOrderStatuses = mapOf<String, String>()
+    private var monitoringJob: kotlinx.coroutines.Job? = null
+    
     init {
         loadOrders()
+    }
+    
+    fun startMonitoring() {
+        if (monitoringJob?.isActive == true) return
+        
+        monitoringJob = viewModelScope.launch {
+            android.util.Log.d("OrderViewModel", "Iniciando monitoreo de pedidos...")
+            while (true) {
+                kotlinx.coroutines.delay(5000) // Revisar cada 5 segundos
+                checkForNewOrdersAndUpdates()
+            }
+        }
+    }
+    
+    fun stopMonitoring() {
+        monitoringJob?.cancel()
+        monitoringJob = null
+        android.util.Log.d("OrderViewModel", "Monitoreo de pedidos detenido")
+    }
+    
+    private suspend fun checkForNewOrdersAndUpdates() {
+        try {
+            val result = repository.getAllOrders()
+            
+            if (result.isSuccess) {
+                val currentOrders = result.getOrThrow()
+                val currentOrderIds = currentOrders.map { it.id }.toSet()
+                
+                // Detectar nuevos pedidos
+                if (previousOrderIds.isNotEmpty()) {
+                    val newOrderIds = currentOrderIds - previousOrderIds
+                    
+                    if (newOrderIds.isNotEmpty()) {
+                        android.util.Log.d("OrderViewModel", "¡${newOrderIds.size} nuevo(s) pedido(s) detectado(s)!")
+                    }
+                    
+                    newOrderIds.forEach { newOrderId ->
+                        val order = currentOrders.find { it.id == newOrderId }
+                        order?.let {
+                            android.util.Log.d("OrderViewModel", "Nuevo pedido: ${it.id} - ${it.user_name}")
+                            notificationService?.showNewOrderNotification(
+                                it.id,
+                                it.user_name,
+                                it.total
+                            )
+                        }
+                    }
+                    
+                    // Detectar cambios de estado
+                    currentOrders.forEach { order ->
+                        val previousStatus = previousOrderStatuses[order.id]
+                        if (previousStatus != null && previousStatus != order.status) {
+                            android.util.Log.d("OrderViewModel", "Estado cambiado: ${order.id} de $previousStatus a ${order.status}")
+                            notificationService?.showOrderStatusUpdateNotification(
+                                order.id,
+                                order.status,
+                                order.user_name
+                            )
+                        }
+                    }
+                }
+                
+                // Actualizar estado anterior
+                previousOrderIds = currentOrderIds
+                previousOrderStatuses = currentOrders.associate { it.id to it.status }
+                
+                // Actualizar UI si hay cambios
+                if (_uiState.value.orders != currentOrders) {
+                    _uiState.value = _uiState.value.copy(orders = currentOrders)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("OrderViewModel", "Error en monitoreo: ${e.message}")
+        }
     }
     
     fun loadOrders() {
@@ -73,6 +156,9 @@ class OrderViewModel(
         viewModelScope.launch {
             repository.createOrder(userId, userName, userEmail, userPhone, userAddress, items, total)
                 .onSuccess { orderId ->
+                    // Mostrar notificación de nuevo pedido
+                    notificationService?.showNewOrderNotification(orderId, userName, total)
+                    
                     onSuccess(orderId)
                     loadOrders() // Recargar la lista
                 }
@@ -84,8 +170,20 @@ class OrderViewModel(
     
     fun updateOrderStatus(orderId: String, newStatus: String) {
         viewModelScope.launch {
+            // Obtener el pedido actual para la notificación
+            val currentOrder = _uiState.value.orders.find { it.id == orderId }
+            
             repository.updateOrderStatus(orderId, newStatus)
                 .onSuccess {
+                    // Mostrar notificación de cambio de estado
+                    currentOrder?.let { order ->
+                        notificationService?.showOrderStatusUpdateNotification(
+                            orderId,
+                            newStatus,
+                            order.user_name
+                        )
+                    }
+                    
                     loadOrders() // Recargar la lista para mostrar el cambio
                 }
                 .onFailure { exception ->
@@ -141,5 +239,16 @@ class OrderViewModel(
             "ready" -> listOf("delivered")
             else -> emptyList()
         }
+    }
+}
+
+// Factory para crear OrderViewModel con contexto
+class OrderViewModelFactory(private val context: Context) : androidx.lifecycle.ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(OrderViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return OrderViewModel(context = context) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
